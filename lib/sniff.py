@@ -1,10 +1,12 @@
 #!/usr/bin/env python
 
-import os
-import sqlite3
 import struct
 import time
+import os
 from thread import start_new_thread
+
+DEV_NAME = 'mon0'
+
 
 def str2mac(s):
     s = b'\0\0' + b''.join([chr(int(x, 16)) for x in s.split(':')])
@@ -12,35 +14,6 @@ def str2mac(s):
 
 def mac2str(mac):
     return ("%02x:"*6)[:-1] % tuple(map(ord, struct.pack('!Q', mac))[2:])
-
-def get_db_conn():
-    db_filename = 'wlanstat.db' # ':memory:'
-    db_is_new = not os.path.exists(db_filename)
-    conn = sqlite3.connect(db_filename)
-
-    schema = """CREATE TABLE IF NOT EXISTS data_packets (
-        timestamp_utc TIMESTAMP DATETIME DEFAULT(STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW')),
-        -- network/ap ssid
-        src_addr UNSIGNED BIG INT NOT NULL,
-        -- station/end device address
-        dst_addr UNSIGNED BIG INT NOT NULL,
-        bssid UNSIGNED BIG INT NOT NULL,
-        -- data size sent
-        size INTEGER NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS beacon_packets (
-        timestamp_utc TIMESTAMP DATETIME DEFAULT(STRFTIME('%Y-%m-%d %H:%M:%f', 'NOW')),
-        -- text id of ap
-        essid TEXT NOT NULL,
-        -- address/bssid of ap
-        bssid UNSIGNED BIG INT NOT NULL
-    );
-
-    CREATE INDEX IF NOT EXISTS beacon_index ON beacon_packets (timestamp_utc);
-    CREATE INDEX IF NOT EXISTS data_index ON data_packets (timestamp_utc);
-    """
-    conn.executescript(schema)
-    return conn
 
 
 def make_packet_handler(conn):
@@ -79,19 +52,41 @@ def make_packet_handler(conn):
     return packet_handler
 
 
-def channel_hopper():
-    # chans = [1, 6, 11]
-    chans = range(1, 15)
-    i = 0
-    while True:
-        os.system('iw dev wlan0mon set channel %d' % chans[i])
-        i = (i + 1) % len(chans)
-        time.sleep(0.5)
+class ChannelHopper(object):
+    _channels = None
+    _interval_s = None
+    _stop = False
+    current_channel = None
 
+    def __init__(self, channels=range(1, 15), interval_s=0.1):
+        self._channels = channels
+        self._interval_s = interval_s
 
-if __name__ == '__main__':
-    start_new_thread(channel_hopper, ())
+    def _loop(self):
+        i = 0
+        while not self._stop:
+            self._set_channel(self._channels[i])
+            i = (i + 1) % len(self._channels)
+            time.sleep(self._interval_s)
 
-    conn = get_db_conn()
+    def _set_channel(self, chan):
+        os.system('iw dev %s set channel %d' % (DEV_NAME, chan))
+
+    def start(self):
+        start_new_thread(self._loop, ())
+
+    def stop(self):
+        self._stop = True
+
+def setup_monitor_mode():
+    os.system('iw phy phy0 interface add %s type monitor' % DEV_NAME)
+    os.system('iw dev wlan0 del')
+    os.system('ifconfig %s up' % DEV_NAME)
+
+def teardown_monitor_mode():
+    os.system('iw dev %s del' % DEV_NAME)
+    os.system('iw phy phy0 interface add wlan0 type managed')
+
+def sniff(db_conn, **kwargs):
     from scapy.all import sniff
-    sniff(iface="wlan0mon", prn=make_packet_handler(conn))
+    sniff(iface=DEV_NAME, prn=make_packet_handler(db_conn), **kwargs)

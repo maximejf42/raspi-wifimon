@@ -3,30 +3,33 @@ This runs on a Raspberry Pi Model B, although all the other models should work t
 
 I am using a $8 [WiFi dongle](http://www.dx.com/p/67532) from Dealextreme. It just works (tm) after pluggin into the RasPi. `lsusb` reports it as `Ralink Technology, Corp. RT5370 Wireless Adapter` with ID `148f:5370`.
 
-## Installing Aircrack-ng on the Raspberry Pi
-I followed this [blog post](http://blog.petrilopia.net/linux/raspberry-pi-install-aircrackng-suite/), however some additional packages (libnl-3-dev libnl-genl-3-dev iw ethtool) hat to be installed for it to work.
+Be sure to have an ethernet conneciton to your Raspberry Pi! During setup we will change the wlan device to monitor mode and thus lose the wifi connection. So you could lock out yourself if you SSH into it using WiFi (although a restart will fix it).
+
+## System setup
 
     sudo apt-get -y update
-    sudo apt-get -y install libssl-dev libnl-3-dev libnl-genl-3-dev iw ethtool python-scapy tcpdump
-    wget http://download.aircrack-ng.org/aircrack-ng-1.2-rc2.tar.gz
-    tar -zxvf aircrack-ng-1.2-rc2.tar.gz
-    cd aircrack-ng-1.2-rc2/
-    make
-    sudo make install
-    sudo airodump-ng-oui-update
+    sudo apt-get -y install iw python-scapy tcpdumppython-dev
+    sudo pip install rpio
 
-## Try out Airodump
+    # add a monitor device
 
-    sudo airmon-ng start wlan0
+    # test if monitoring works
+    sudo iw phy phy0 interface add mon0 type monitor
+    sudo iw dev wlan0 del
+    sudo ifconfig mon0 up
+    sudo iw dev mon0 set channel 6
 
-In the output, look for `Interface`, it should read `wlan0mon` or `mon0`. You have to use for the following commands. If you see an error message, run it again.
+    # tcpdump should continuously list captured packages. Kill it with Ctrl-C.
+    sudo tcpdump -i mon0 -n
 
-Now, run `airodump-ng wlan0mon`. After some seconds, you should see a list of SSIDs in your environment. If this works, everything is ready!
+    # teardown, back to normal wifi operation
+    sudo iw dev mon0 del
+    sudo iw phy phy0 interface add wlan0 type managed
 
-To gain back normal WiFi functionality just run `sudo airmon-ng stop wlan0mon`.
+## Install our script
 
+    scp -r raspi-mon pi@<ip_of_your_pi>
 
-Data to gather:
+On your Pi, add the following line to `/etc/rc.local`:
 
-    Beacon Packets: (Type = 00, subtype = 0x8), SSID, AP Addr
-    Data Packets: (Type = 10) Recv addr, Trsmt addr, Timestamp
+    sudo python /home/pi/raspi-mon/server.py &
