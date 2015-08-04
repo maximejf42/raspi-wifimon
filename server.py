@@ -15,6 +15,7 @@ from lib.data import (
 )
 from lib import led
 
+
 def start_new_sniff_thread():
     def f():
         conn = get_db_conn()
@@ -23,7 +24,7 @@ def start_new_sniff_thread():
 
 led.setup()
 setup_monitor_mode()
-hopper = ChannelHopper(interval_s=0.1)
+hopper = ChannelHopper(interval_s=0.3, channels=[1, 6, 11])
 hopper.start()
 
 start_new_sniff_thread()
